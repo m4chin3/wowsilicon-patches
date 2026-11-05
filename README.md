@@ -28,11 +28,8 @@ launching.
 
 ## 1. Clone and enter the package root
 
-Replace `YOUR_REPOSITORY_URL` with the clone URL of the repository containing
-these packages:
-
 ```sh
-git clone YOUR_REPOSITORY_URL wowsilicon-patches
+git clone git@github.com:m4chin3/wowsilicon-patches.git wowsilicon-patches
 cd wowsilicon-patches
 ```
 

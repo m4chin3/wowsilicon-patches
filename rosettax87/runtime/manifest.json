@@ -1,0 +1,17 @@
+{
+  "upstream_repository": "https://github.com/Lifeisawful/rosettax87_jit",
+  "upstream_commit": "e858b62292b16859d3fda53719756164a9e67ea2",
+  "compiler": "AppleClang 21.0.0.21000401",
+  "build_type": "Debug",
+  "cmake_cxx_flags": "-fno-stack-check",
+  "files": {
+    "rosettax87": {
+      "sha256": "67cbdd70e2edb0866f9e8356c257eb3cad826205cbb729e59f8964b1858cd790",
+      "size": 343984
+    },
+    "libRuntimeRosettax87": {
+      "sha256": "28a6570de6ac2e56011ae06b1a6383367f8c97cd79a44fb2c997032dbcc9f9f2",
+      "size": 356344
+    }
+  }
+}

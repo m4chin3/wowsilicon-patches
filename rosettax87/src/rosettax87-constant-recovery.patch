@@ -1,0 +1,122 @@
+diff --git a/rosetta_core/include/rosetta_core/AssemblerHelpers.hpp b/rosetta_core/include/rosetta_core/AssemblerHelpers.hpp
+index 860cb96..a4feb8a 100644
+--- a/rosetta_core/include/rosetta_core/AssemblerHelpers.hpp
++++ b/rosetta_core/include/rosetta_core/AssemblerHelpers.hpp
+@@ -378,4 +378,6 @@ auto emit_adr(AssemblerBuffer& buf, int is_adrp, int Rd, uint32_t imm) -> void;
+ // sign-extension would narrow, which the AArch64 LDRS encoding does not support.
+ // =============================================================================
+ auto emit_ldrs(AssemblerBuffer& insn_buf, int is_64bit, unsigned int size, int dst_gpr,
+-               int addr_gpr) -> void;
+\ No newline at end of file
++               int addr_gpr) -> void;
++// Materialize constants using instructions supported by Rosetta state recovery.
++auto emit_f64_bits(AssemblerBuffer& buf, int Dd, uint64_t bits, int scratch_gpr) -> void;
+diff --git a/rosetta_core/src/AssemblerHelpers.cpp b/rosetta_core/src/AssemblerHelpers.cpp
+index 6012685..a1a1d76 100644
+--- a/rosetta_core/src/AssemblerHelpers.cpp
++++ b/rosetta_core/src/AssemblerHelpers.cpp
+@@ -837,4 +837,19 @@ auto emit_ldrs(AssemblerBuffer& insn_buf, int is_64bit, unsigned int size, int d
+     emit_ldr_str_imm(insn_buf, static_cast<int>(size),
+                      /*is_fp=*/0, opc,
+                      /*imm12=*/0, addr_gpr, dst_gpr);
+-}
+\ No newline at end of file
++}
++// FMOV (immediate) is valid ARM64, but the installed libRosettaRuntime's
++// state-recovery decoder does not recognize it. Inline literal data is also
++// unsafe for a decoder that scans the generated instruction stream linearly.
++// The caller supplies an allocated scratch GPR; no guest register is clobbered.
++auto emit_f64_bits(AssemblerBuffer& buf, int Dd, uint64_t bits, int scratch_gpr) -> void {
++    bool initialized = false;
++    for (int hw = 3; hw >= 0; --hw) {
++        const auto part = static_cast<uint16_t>(bits >> (16 * hw));
++        if (!part && initialized) continue;
++        if (!part && hw != 0) continue;
++        emit_movn(buf, 1, initialized ? 3 : 2, hw, part, scratch_gpr);
++        initialized = true;
++    }
++    emit_fmov_x_to_d(buf, Dd, scratch_gpr);
++}
+diff --git a/rosetta_core/src/TranslatorX87.cpp b/rosetta_core/src/TranslatorX87.cpp
+index 0079e65..5d372cf 100644
+--- a/rosetta_core/src/TranslatorX87.cpp
++++ b/rosetta_core/src/TranslatorX87.cpp
+@@ -82,8 +82,8 @@ auto translate_fld1(TranslationResult* a1, IRInstr* /*a2*/) -> void {
+ 
+     x87_push(buf, *a1, Xbase, Wd_top, Wd_tmp, Wd_tmp2);
+ 
+-    // OPT-5: FMOV Dd, #1.0 — single instruction, no GPR intermediate.
+-    emit_fmov_d_one(buf, Dd_val);
++    // Keep the emitted sequence readable by Rosetta state recovery.
++    emit_f64_bits(buf, Dd_val, 0x3FF0000000000000ULL, Wd_tmp);
+     emit_store_st(buf, Xbase, Wd_top, resolve_depth(*a1, 0), Wd_tmp, Dd_val, Xst_base);
+ 
+     free_fpr(*a1, Dd_val);
+@@ -113,9 +113,8 @@ static void translate_fld_const(TranslationResult* a1, uint64_t bits) {
+     x87_push(buf, *a1, Xbase, Wd_top, Wd_tmp, Wd_tmp2);
+     free_gpr(*a1, Wd_tmp2);
+ 
+-    // OPT-H: Inline constant pool — LDR Dd, [PC, #8] + B + .quad
+-    // Replaces MOVZ/MOVK chain + FMOV (4-5 insns) with 2 insns + 8 bytes data.
+-    emit_ldr_literal_f64(buf, Dd_val, bits);
++    // Avoid embedding literal data in the recovery instruction stream.
++    emit_f64_bits(buf, Dd_val, bits, Wd_tmp);
+     emit_store_st(buf, Xbase, Wd_top, resolve_depth(*a1, 0), Wd_tmp, Dd_val, Xst_base);
+ 
+     free_fpr(*a1, Dd_val);
+diff --git a/rosetta_core/src/TranslatorX87Fusion.cpp b/rosetta_core/src/TranslatorX87Fusion.cpp
+index c4047dc..8fe8cb3 100644
+--- a/rosetta_core/src/TranslatorX87Fusion.cpp
++++ b/rosetta_core/src/TranslatorX87Fusion.cpp
+@@ -152,13 +152,14 @@ static void emit_fld_value(AssemblerBuffer& buf, TranslationResult& a1,
+             break;
+ 
+         case kFldOne:
+-            emit_fmov_d_one(buf, Dd_val);
+-            break;
+-
+-        case kFldConst64:
+-            // OPT-H: Inline constant pool — 2 insns + 8 bytes data
+-            emit_ldr_literal_f64(buf, Dd_val, cls.const_bits);
++        case kFldConst64: {
++            const int scratch = alloc_free_gpr(a1);
++            emit_f64_bits(buf, Dd_val,
++                          cls.source == kFldOne ? 0x3FF0000000000000ULL : cls.const_bits,
++                          scratch);
++            free_gpr(a1, scratch);
+             break;
++        }
+ 
+         case kFldInvalid:
+             break;
+diff --git a/rosetta_core/src/X87IRLower.cpp b/rosetta_core/src/X87IRLower.cpp
+index 5ea922b..29823d0 100644
+--- a/rosetta_core/src/X87IRLower.cpp
++++ b/rosetta_core/src/X87IRLower.cpp
+@@ -944,20 +944,15 @@ void lower(Context& ctx, TranslationResult* result) {
+             emit_movi_d_zero(buf, Dd);
+             break;
+         }
+-        case Op::ConstOne: {
+-            int Dd = alloc_free_fpr(*result);
+-            fprs.node_fpr[i] = static_cast<int8_t>(Dd);
+-            emit_fmov_d_one(buf, Dd);
+-            break;
+-        }
++        case Op::ConstOne:
+         case Op::ConstF64: {
+             int Dd = alloc_free_fpr(*result);
+             fprs.node_fpr[i] = static_cast<int8_t>(Dd);
+-            uint8_t imm8;
+-            if (f64_fmov_imm8(n.imm_bits, &imm8))
+-                emit_fmov_d_imm8(buf, Dd, imm8);
+-            else
+-                emit_ldr_literal_f64(buf, Dd, n.imm_bits);
++            const int scratch = alloc_free_gpr(*result);
++            emit_f64_bits(buf, Dd,
++                          n.op == Op::ConstOne ? 0x3FF0000000000000ULL : n.imm_bits,
++                          scratch);
++            free_gpr(*result, scratch);
+             break;
+         }
+ 

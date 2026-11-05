@@ -1,0 +1,83 @@
+function(add_x86_sample name)
+  set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}")
+  add_custom_command(
+    OUTPUT "${output}"
+    COMMAND /bin/zsh -lc "mkdir -p ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} && /usr/bin/clang -arch x86_64 -O0 -g -o ${output} ${CMAKE_CURRENT_SOURCE_DIR}/${name}.c"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${name}.c"
+    COMMENT "Building x86_64 ${name} with clang"
+    VERBATIM
+  )
+  add_custom_target(${name}_x86_64 ALL DEPENDS "${output}")
+endfunction()
+
+
+# Variant with a shrunken __PAGEZERO so the test can mmap fixed pages below
+# 2 GB (needed to exercise absolute-address ([disp32]) x87 operands).
+function(add_x86_sample_lowzero name)
+  set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}")
+  add_custom_command(
+    OUTPUT "${output}"
+    COMMAND /bin/zsh -lc "mkdir -p ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} && /usr/bin/clang -arch x86_64 -O0 -g -Wl,-pagezero_size,0x4000 -o ${output} ${CMAKE_CURRENT_SOURCE_DIR}/${name}.c"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${name}.c"
+    COMMENT "Building x86_64 ${name} with clang (low pagezero)"
+    VERBATIM
+  )
+  add_custom_target(${name}_x86_64 ALL DEPENDS "${output}")
+endfunction()
+
+add_x86_sample(test_fldconst)
+add_x86_sample(test_fld)
+add_x86_sample(test_fld_m80fp)
+add_x86_sample(test_fmul)
+add_x86_sample(test_fild)
+add_x86_sample(test_fcom)
+add_x86_sample(test_peephole)
+add_x86_sample(test_arith)
+add_x86_sample(test_compare_unary)
+add_x86_sample(test_fld_fst)
+add_x86_sample(test_fcomp_mem)
+add_x86_sample(test_peephole3)
+add_x86_sample(test_peephole4)
+add_x86_sample(test_peephole5)
+add_x86_sample(test_peephole6)
+add_x86_sample(test_deep_stack)
+add_x86_sample(test_x87_full)
+add_x86_sample(test_fstpt)
+add_x86_sample(test_peephole7)
+add_x86_sample(test_fcom_nzcv)
+add_x86_sample(test_fxam)
+add_x86_sample(test_arithp_fstp)
+add_x86_sample(test_arith_faddp)
+add_x86_sample(test_fstp_fld)
+add_x86_sample(test_fxch)
+add_x86_sample(test_fistt)
+add_x86_sample(test_tag_batch)
+add_x86_sample(test_peephole8)
+add_x86_sample(test_fld_arith_arithp_fma)
+add_x86_sample(test_readst_elide)
+add_x86_sample(test_fxch_initial)
+add_x86_sample(test_fldcw)
+add_x86_sample(test_fcomi)
+add_x86_sample(test_frndint)
+add_x86_sample(test_fistp_multi)
+add_x86_sample(test_fcmov)
+add_x86_sample(test_ficom)
+add_x86_sample(test_rc_recache)
+add_x86_sample(test_fstpt_gs)
+add_x86_sample(test_ir_deferred)
+add_x86_sample(test_mem_cse)
+add_x86_sample(test_ir_algebra)
+add_x86_sample(test_addr_fold)
+add_x86_sample(test_f32_raw)
+add_x86_sample(test_decoder_fcomp_st)
+add_x86_sample(test_ir_gpr_pressure)
+add_x86_sample(test_int_regbase)
+add_x86_sample(test_run_breaks)
+add_x86_sample(test_transparent_int)
+add_x86_sample(test_ir_fpr_pressure)
+add_x86_sample(test_sse_whitelist)
+add_x86_sample(test_bridge_pressure)
+add_x86_sample(test_keepalive)
+add_x86_sample_lowzero(test_const_promote)
+add_x86_sample_lowzero(test_decoder_arpl)
+add_x86_sample_lowzero(test_addr32)
